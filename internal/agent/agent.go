@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/firebase/genkit/go/ai"
+	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/ollama"
 	"github.com/siber/go-genkit-rag-chatbot/internal/memory"
 	"github.com/siber/go-genkit-rag-chatbot/internal/vectorstore"
@@ -15,33 +16,40 @@ type Agent struct {
 	embedder     ai.Embedder
 	model        ai.Model
 	searchDbTool ai.Tool
+	g            *genkit.Genkit
 }
 
 type SearchDbInput struct {
-	Query string `json:"query"`
+	Query string `json:"query" jsonschema:"description=The search query string to look for in the manuals"`
 }
 
 func NewAgent(ctx context.Context, qClient *vectorstore.SimpleQdrantClient) (*Agent, error) {
-	err := ollama.Init(ctx, &ollama.Config{
+	plugin := &ollama.Ollama{
 		ServerAddress: "http://localhost:11434",
-	})
-	if err != nil {
-		return nil, err
 	}
+	g := genkit.Init(ctx, genkit.WithPlugins(plugin))
 
-	embedder := ollama.Embedder("nomic-embed-text")
-	model := ollama.Model("qwen3.5:14b")
+	embedder := plugin.DefineEmbedder(g, "http://localhost:11434", "nomic-embed-text", nil)
+	model := plugin.DefineModel(g, ollama.ModelDefinition{
+		Name: "llama3.1:8b",
+		Type: "chat",
+	}, &ai.ModelOptions{
+		Supports: &ai.ModelSupports{
+			Tools:      true,
+			SystemRole: true,
+			Multiturn:  true,
+		},
+	})
 
-	searchDbTool := ai.DefineTool(
+	searchDbTool := genkit.DefineTool[*SearchDbInput, string](
+		g,
 		"search_db",
-		"Vektör veritabanında (Qdrant) arama yapıp bağlamı ve kılavuzları getiren araç. Kullanıcının sorununu çözmek için ilgili dökümantasyonları bu araçla ara.",
-		func(ctx context.Context, input *SearchDbInput) (string, error) {
-			req := &ai.EmbedRequest{
-				Documents: []*ai.Document{
-					ai.DocumentFromText(input.Query, nil),
-				},
-			}
-			res, err := embedder.Embed(ctx, req)
+		"Searches the knowledge base for manuals to solve the user's problem. Input MUST be a JSON object with a single 'query' string field.",
+		func(ctx *ai.ToolContext, input *SearchDbInput) (string, error) {
+			res, err := genkit.Embed(ctx, g,
+				ai.WithEmbedder(embedder),
+				ai.WithTextDocs(input.Query),
+			)
 			if err != nil {
 				return "", err
 			}
@@ -70,27 +78,19 @@ func NewAgent(ctx context.Context, qClient *vectorstore.SimpleQdrantClient) (*Ag
 		embedder:     embedder,
 		model:        model,
 		searchDbTool: searchDbTool,
+		g:            g,
 	}, nil
 }
 
 func (a *Agent) Chat(ctx context.Context, userInput string, history []memory.Message) (string, error) {
 	systemPrompt := `Sen uzman bir sorun giderme asistanısın. Agentic RAG tabanlı bir Chatbotsun.
-Adım adım ilerlemen ve sorunları çözmen gerekiyor.
 ÖNEMLİ KURALLAR:
-1. Kullanıcının sorununun çözümü için her zaman 'search_db' aracını kullanarak bağlam araştır.
-2. Bir sorunu çözerken, kullanıcının o adımı uygulayıp uygulamadığını bekle.
-3. Bir adımı uygulamadan diğerine GEÇME. İlk adım başarılıysa sonrasında ikinci adıma geçeceğini belirt.
-4. Çözümleri her zaman veritabanından aldığın bilgilere (search_db sonuçlarına) dayandır. Uydurma bilgi verme.`
+1. Bir soru aldığında, ASLA KULLANICIYA İZİN SORMADAN doğrudan 'search_db' aracını (tool) ÇAĞIR. Aramayı otomatik yap.
+2. Çözümleri her zaman 'search_db' aracından gelen sonuçlara dayandır. Veritabanında olmayan uydurma bilgiler verme.
+3. Sorun çözümü birden fazla adımdan oluşuyorsa, adımları tek tek ver. Kullanıcı ilk adımı uygulayıp onaylamadan ikinci adıma geçme.
+4. 'search_db' dışındaki araçlar (ileride eklenecek) için izin isteyebilirsin, ancak arama işlemi için beklemeden aracı kullan.`
 
-	messages := []*ai.Message{
-		{
-			Role: ai.RoleSystem,
-			Content: []*ai.Part{
-				ai.NewTextPart(systemPrompt),
-			},
-		},
-	}
-
+	var messages []*ai.Message
 	for _, msg := range history {
 		role := ai.RoleUser
 		if msg.Role == "model" {
@@ -104,22 +104,16 @@ Adım adım ilerlemen ve sorunları çözmen gerekiyor.
 		})
 	}
 
-	messages = append(messages, &ai.Message{
-		Role: ai.RoleUser,
-		Content: []*ai.Part{
-			ai.NewTextPart(userInput),
-		},
-	})
-
-	req := &ai.GenerateRequest{
-		Messages: messages,
-		Tools:    []ai.Tool{a.searchDbTool},
-	}
-
-	res, err := a.model.Generate(ctx, req, nil)
+	res, err := genkit.GenerateText(ctx, a.g,
+		ai.WithModel(a.model),
+		ai.WithSystem(systemPrompt),
+		ai.WithMessages(messages...),
+		ai.WithPrompt(userInput),
+		ai.WithTools(a.searchDbTool),
+	)
 	if err != nil {
 		return "", err
 	}
 
-	return res.Text(), nil
+	return res, nil
 }
