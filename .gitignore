@@ -17,3 +17,5 @@ qdrant_storage/
 # PDFs and Assets
 *.pdf
 assets/*.pdf
+*.txt
+memory-bank/
