@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/firebase/genkit/go/ai"
@@ -15,12 +16,17 @@ type Agent struct {
 	qClient      *vectorstore.SimpleQdrantClient
 	embedder     ai.Embedder
 	model        ai.Model
-	searchDbTool ai.Tool
-	g            *genkit.Genkit
+	searchDbTool     ai.Tool
+	createTicketTool ai.Tool
+	g                *genkit.Genkit
 }
 
 type SearchDbInput struct {
 	Query string `json:"query" jsonschema:"description=The search query string to look for in the manuals"`
+}
+
+type CreateTicketInput struct {
+	Issue string `json:"issue" jsonschema:"description=The detailed description of the user's issue to be included in the support ticket"`
 }
 
 func NewAgent(ctx context.Context, qClient *vectorstore.SimpleQdrantClient) (*Agent, error) {
@@ -60,7 +66,7 @@ func NewAgent(ctx context.Context, qClient *vectorstore.SimpleQdrantClient) (*Ag
 
 			vec := res.Embeddings[0].Embedding
 
-			texts, err := qClient.Search(ctx, "manuals", vec, 3)
+			texts, err := qClient.Search(ctx, "manuals", vec, input.Query, 3)
 			if err != nil {
 				return "", err
 			}
@@ -73,22 +79,37 @@ func NewAgent(ctx context.Context, qClient *vectorstore.SimpleQdrantClient) (*Ag
 		},
 	)
 
+	createTicketTool := genkit.DefineTool[*CreateTicketInput, string](
+		g,
+		"create_ticket",
+		"Creates a support ticket when the user's issue cannot be resolved using the manuals or if the user explicitly requests a ticket.",
+		func(ctx *ai.ToolContext, input *CreateTicketInput) (string, error) {
+			// In a real app, this would call a Jira/Zendesk API.
+			// For now, we just log it to the console as requested.
+			fmt.Printf("[TICKET] New ticket created! Issue: %s\n", input.Issue)
+			return "Destek talebiniz başarıyla oluşturuldu. Teknik ekibimiz en kısa sürede size dönüş yapacaktır.", nil
+		},
+	)
+
 	return &Agent{
-		qClient:      qClient,
-		embedder:     embedder,
-		model:        model,
-		searchDbTool: searchDbTool,
-		g:            g,
+		qClient:          qClient,
+		embedder:         embedder,
+		model:            model,
+		searchDbTool:     searchDbTool,
+		createTicketTool: createTicketTool,
+		g:                g,
 	}, nil
 }
 
 func (a *Agent) Chat(ctx context.Context, userInput string, history []memory.Message) (string, error) {
-	systemPrompt := `Sen uzman bir sorun giderme asistanısın. Agentic RAG tabanlı bir Chatbotsun.
+	systemPrompt := `Sen uzman bir ürün destek asistanısın. Agentic RAG tabanlı bir Chatbotsun.
 ÖNEMLİ KURALLAR:
-1. Bir soru aldığında, ASLA KULLANICIYA İZİN SORMADAN doğrudan 'search_db' aracını (tool) ÇAĞIR. Aramayı otomatik yap.
-2. Çözümleri her zaman 'search_db' aracından gelen sonuçlara dayandır. Veritabanında olmayan uydurma bilgiler verme.
-3. Sorun çözümü birden fazla adımdan oluşuyorsa, adımları tek tek ver. Kullanıcı ilk adımı uygulayıp onaylamadan ikinci adıma geçme.
-4. 'search_db' dışındaki araçlar (ileride eklenecek) için izin isteyebilirsin, ancak arama işlemi için beklemeden aracı kullan.`
+1. GÖREVİN: Kullanıcının EN SON gönderdiği mesajdaki soruya odaklanmak ve ona cevap vermektir.
+2. BAĞLAM: Önceki mesajları sadece konuşmanın akışını anlamak için bağlam (context) olarak kullan. Eğer kullanıcı önceki konudan bağımsız yeni bir soru sorduysa, sadece yeni soruya odaklan ve önceki cevapları tekrar etme.
+3. ARAÇ KULLANIMI: Bir soru aldığında, ASLA KULLANICIYA İZİN SORMADAN doğrudan 'search_db' aracını (tool) ÇAĞIR. Aramayı otomatik yap.
+4. BİLGİ KAYNAĞI: Kullanıcının sorusu sadece bilgi almak amaçlıysa, 'search_db' sonuçlarına dayanarak doğrudan tam ve açıklayıcı bilgiyi ver.
+5. ADIM YÖNETİMİ: Kullanıcı bir sorun çözümü veya kurulum adımı istiyorsa, adımları nasıl vereceğine (tek seferde mi yoksa adım adım bekleyerek mi) DURUMA GÖRE KENDİN KARAR VER.
+6. DOĞRULUK: Tüm cevaplarını kesinlikle 'search_db' sonuçlarına dayandır. Veritabanında olmayan uydurma bilgiler verme.`
 
 	var messages []*ai.Message
 	for _, msg := range history {
@@ -109,7 +130,7 @@ func (a *Agent) Chat(ctx context.Context, userInput string, history []memory.Mes
 		ai.WithSystem(systemPrompt),
 		ai.WithMessages(messages...),
 		ai.WithPrompt(userInput),
-		ai.WithTools(a.searchDbTool),
+		ai.WithTools(a.searchDbTool, a.createTicketTool),
 	)
 	if err != nil {
 		return "", err

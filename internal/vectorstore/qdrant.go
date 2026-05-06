@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 // SimpleQdrantClient is a lightweight HTTP client for Qdrant.
@@ -91,12 +93,14 @@ type SearchResult struct {
 	} `json:"result"`
 }
 
-func (c *SimpleQdrantClient) Search(ctx context.Context, collectionName string, vector []float32, limit int) ([]string, error) {
+func (c *SimpleQdrantClient) Search(ctx context.Context, collectionName string, vector []float32, query string, limit int) ([]string, error) {
 	url := fmt.Sprintf("http://%s:%d/collections/%s/points/search", c.Host, c.Port, collectionName)
 	
+	// Re-ranking & Hybrid Search: Fetch 4x results from Qdrant first
+	fetchLimit := limit * 4
 	payload := map[string]interface{}{
 		"vector": vector,
-		"limit":  limit,
+		"limit":  fetchLimit,
 		"with_payload": true,
 	}
 	body, _ := json.Marshal(payload)
@@ -121,11 +125,42 @@ func (c *SimpleQdrantClient) Search(ctx context.Context, collectionName string, 
 		return nil, err
 	}
 
-	var texts []string
+	type RankedResult struct {
+		Text  string
+		Score float32
+	}
+
+	var results []RankedResult
+	queryTerms := strings.Fields(strings.ToLower(query))
+
 	for _, res := range searchRes.Result {
 		if text, ok := res.Payload["text"].(string); ok {
-			texts = append(texts, text)
+			// Hybrid Scoring: Base Vector Score + Keyword Match Boost
+			boost := float32(0.0)
+			lowerText := strings.ToLower(text)
+			
+			for _, term := range queryTerms {
+				if len(term) > 3 && strings.Contains(lowerText, term) {
+					boost += 0.05 // Boost for exact term match (Hybrid search logic)
+				}
+			}
+			
+			results = append(results, RankedResult{
+				Text:  text,
+				Score: res.Score + boost, // Re-ranked score
+			})
 		}
 	}
-	return texts, nil
+
+	// Sort by our new Re-ranked score descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	var finalTexts []string
+	for i := 0; i < len(results) && i < limit; i++ {
+		finalTexts = append(finalTexts, results[i].Text)
+	}
+
+	return finalTexts, nil
 }

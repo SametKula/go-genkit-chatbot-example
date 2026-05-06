@@ -1,13 +1,15 @@
 # Active Context
 
 ## Current Phase
-Proje kurulumu ve yapılandırma. Memory bank oluşturuldu.
+Hybrid Search, Re-ranking ve Tool geliştirme aşaması tamamlandı.
 
 ## Next Steps
-- `SessionStore` interface'ini ve In-Memory (Hash Map) implementasyonunu yazmak (`internal/memory`).
-- Klasör yapısını oluşturmak (`cmd/server`, `cmd/ingest`, `internal/agent`, vb.).
-- `cmd/ingest` uygulamasını yazmak.
+- Streaming (Canlı yazı akışı) özelliğini Websocket tarafına eklemek.
+- Memory katmanını Redis'e taşımak (Gelecek faz).
 
 ## Recent Changes
-- Git ve Go modülleri initialize edildi.
-- Memory Bank oluşturuldu.
+- `internal/vectorstore` içinde Hybrid Search ve Re-ranking (Keyword boost) mekanizması eklendi.
+- `create_ticket` aracı (tool) Agent'a eklendi.
+- Sistem promptu, otomatik arama yapacak ve duruma göre adım bekleyecek şekilde optimize edildi.
+- `.gitignore` dosyası yapılandırıldı.
+- `client/index.html` arayüzü, sağ altta açılabilen turuncu temalı "Teknik Asistan" widget'ına dönüştürüldü.
