@@ -40,3 +40,9 @@ go run cmd/server/main.go
 - internal/vectorstore: Qdrant entegrasyonu ve hibrit arama mantığı.
 - internal/websocket: Ağ iletişimi ve oturum yönetimi.
 - client: Web tabanlı Teknik Asistan arayüzü.
+
+## Ekran Görüntüleri
+
+![Teknik Asistan Widget Giriş](assets/Ekran%20Resmi%202026-05-07%2008.52.53.png)
+
+![Teknik Asistan Sohbet Ekranı](assets/Ekran%20Resmi%202026-05-07%2008.54.11.png)
