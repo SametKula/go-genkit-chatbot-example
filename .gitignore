@@ -13,9 +13,9 @@ bin/
 
 # Qdrant Storage
 qdrant_storage/
+memory-bank
 
 # PDFs and Assets
 *.pdf
 assets/*.pdf
 *.txt
-memory-bank/
