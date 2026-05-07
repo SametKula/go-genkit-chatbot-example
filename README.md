@@ -7,7 +7,6 @@ Bu proje, Go dili ve Genkit framework'ü kullanılarak geliştirilmiş, teknik d
 - Agentic Akış: Model, kullanıcı sorularını yanıtlamak için dökümantasyon araması yapıp yapmayacağına ve yanıt stratejisine (bilgi verme veya adım adım rehberlik) kendi karar verir.
 - Hybrid Search ve Re-ranking: Vektör tabanlı benzerlik aramasını, anahtar kelime eşleşmesi ile birleştiren bir re-ranking algoritması kullanır. Bu sayede teknik terimlerin ve hata kodlarının isabet oranı artırılmıştır.
 - create_ticket Aracı: Sistemde çözüm bulunamadığında otomatik olarak destek talebi oluşturma yeteneğine sahiptir.
-- Turuncu Temalı Chat Widget: Web arayüzünde sağ alt köşede konumlanan, kullanıcı dostu ve modern bir sohbet arayüzü sunar.
 
 ## Kurulum ve Çalıştırma Adımları
 
