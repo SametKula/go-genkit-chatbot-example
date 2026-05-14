@@ -19,3 +19,6 @@ memory-bank
 *.pdf
 assets/*.pdf
 *.txt
+
+assets/data.json
+assets/*.txt
